@@ -1,0 +1,162 @@
+name: $(Rev:r)
+
+resources:
+  - repo: self
+
+trigger:
+  - main
+
+jobs:
+# Create S3 bucket as a backed to the tfstate file used in next jobs
+- job: A
+  pool:
+    vmImage: 'ubuntu-latest'
+  steps:
+  # Install Terraform especific version 
+  - task: ms-devlabs.custom-terraform-tasks.custom-terraform-installer-task.TerraformInstaller@0
+    displayName: Install Terraform 1.0.7
+    inputs:
+      terraformVersion: 1.0.7
+
+  # Initializization
+  - task: charleszipp.azure-pipelines-tasks-terraform.azure-pipelines-tasks-terraform-cli.TerraformCLI@0
+    displayName: 'terraform init'
+    inputs:
+      command: init
+      workingDirectory: backend
+  
+  # Validate s3bk.tf file 
+  - task: TerraformTaskV2@2
+    displayName: 'Terraform : validate'
+    inputs:
+      provider: aws
+      command: validate
+      workingDirectory: backend
+      backendServiceAWS: 59a2c16f-ed24-4b0e-b097-81f5586fbbcc
+
+  # Planning the IaC
+  - task: TerraformTaskV2@2
+    name: ''
+    displayName: 'Terraform : plan'
+    inputs:
+      provider: aws
+      command: plan
+      workingDirectory: backend
+      commandOptions: -out=tfplan -input=false
+      environmentServiceNameAWS: 59a2c16f-ed24-4b0e-b097-81f5586fbbcc
+
+  # Destroy IaC planned 
+  - task: TerraformTaskV2@2
+    displayName: 'Terraform : apply'
+    inputs:
+      provider: aws
+      command: apply
+      workingDirectory: backend
+      environmentServiceNameAWS: 59a2c16f-ed24-4b0e-b097-81f5586fbbcc
+
+# Create main recourses and set tfstate to S3 bucket created in the before job A
+- job: B
+  dependsOn: A
+  pool:
+    vmImage: 'ubuntu-latest'
+  steps:
+  # Install Terraform especific version 
+  - task: ms-devlabs.custom-terraform-tasks.custom-terraform-installer-task.TerraformInstaller@0
+    displayName: Install Terraform 1.0.7
+    inputs:
+      terraformVersion: 1.0.7
+
+  # Initialize and connect terraform with AWS / S3 bucket
+  - task: TerraformTaskV2@2
+    displayName: 'Terraform : AWS connection & init'
+    inputs:
+      provider: aws
+      workingDirectory: src
+      backendServiceAWS: 59a2c16f-ed24-4b0e-b097-81f5586fbbcc
+      backendAWSBucketName: my-terra-bucket-99
+      backendAWSKey: terraform-bk/terraform.tfstate
+
+  # Validate main.tf file 
+  - task: TerraformTaskV2@2
+    displayName: 'Terraform : validate'
+    inputs:
+      provider: aws
+      command: validate
+      workingDirectory: src
+      backendServiceAWS: 59a2c16f-ed24-4b0e-b097-81f5586fbbcc
+
+  # Planning the IaC
+  - task: TerraformTaskV2@2
+    name: ''
+    displayName: 'Terraform : plan'
+    inputs:
+      provider: aws
+      command: plan
+      workingDirectory: src
+      commandOptions: -out=tfplan -input=false
+      environmentServiceNameAWS: 59a2c16f-ed24-4b0e-b097-81f5586fbbcc
+
+  # Destroy IaC planned 
+  - task: TerraformTaskV2@2
+    displayName: 'Terraform : apply'
+    inputs:
+      provider: aws
+      command: apply
+      workingDirectory: src
+      environmentServiceNameAWS: 59a2c16f-ed24-4b0e-b097-81f5586fbbcc
+
+# Wait 5 minutes for resources stabilization & testing
+  - bash: 'sleep 5m'
+    displayName: 'Time - Wait 5 minutes for stabilization & testing'
+
+# Delete all resources created in the job B
+- job: C
+  dependsOn: B
+  pool:
+    vmImage: 'ubuntu-latest'
+  steps:
+  # Install Terraform especific version 
+  - task: ms-devlabs.custom-terraform-tasks.custom-terraform-installer-task.TerraformInstaller@0
+    displayName: Install Terraform 1.0.7
+    inputs:
+      terraformVersion: 1.0.7
+
+  # Initialize and connect terraform with AWS / S3 bucket
+  - task: TerraformTaskV2@2
+    displayName: 'Terraform : AWS connection & init'
+    inputs:
+      provider: aws
+      workingDirectory: src
+      backendServiceAWS: 59a2c16f-ed24-4b0e-b097-81f5586fbbcc
+      backendAWSBucketName: my-terra-bucket-99
+      backendAWSKey: terraform-bk/terraform.tfstate
+
+  # Validate main.tf file 
+  - task: TerraformTaskV2@2
+    displayName: 'Terraform : validate'
+    inputs:
+      provider: aws
+      command: validate
+      workingDirectory: src
+      backendServiceAWS: 59a2c16f-ed24-4b0e-b097-81f5586fbbcc
+
+  # Planning the IaC
+  - task: TerraformTaskV2@2
+    name: ''
+    displayName: 'Terraform : plan'
+    inputs:
+      provider: aws
+      command: plan
+      workingDirectory: src
+      commandOptions: -out=tfplan -input=false
+      environmentServiceNameAWS: 59a2c16f-ed24-4b0e-b097-81f5586fbbcc
+
+  # Destroy IaC planned 
+  - task: TerraformTaskV2@2
+    displayName: 'Terraform : destroy'
+    inputs:
+      provider: aws
+      command: apply
+      workingDirectory: src
+      commandOptions: -destroy
+      environmentServiceNameAWS: 59a2c16f-ed24-4b0e-b097-81f5586fbbcc
